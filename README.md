@@ -13,7 +13,7 @@ Inspect font packages, compare families, test character coverage, explore variab
 - Preview imported fonts and compare two faces side by side.
 - Adjust specimen size, line height, letter spacing, text colour and background.
 - Expose variable-font axis controls when axis metadata is available from the parser.
-- Export JSON, CSV, CSS, a standalone HTML report, or a ZIP handoff containing original inputs and generated reports.
+- Export JSON, CSV, CSS, design tokens, Tailwind font-family configuration, a baseline/candidate metadata regression report, a standalone HTML report, or a ZIP handoff containing original inputs and generated reports.
 - Keep font bytes in the browser session. There is no account, backend, upload endpoint or analytics.
 
 ## Run locally
