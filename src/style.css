@@ -98,3 +98,30 @@ a:focus-visible { outline-color: #e0f5b5; }
 @media (forced-colors: active) {
   .panel, .stats article, .drop, .specimen { border: 1px solid CanvasText; }
 }
+
+
+/* Permission-based local font library */
+.local-font-library { margin: 16px 0; }
+.local-font-count { color: #d7f29a; font: 9px var(--mono); letter-spacing: 1px; white-space: nowrap; }
+.local-font-description { max-width: 760px; color: #c0c5b6; font-size: 12px; line-height: 1.7; }
+.local-font-actions { display: flex; gap: 9px; flex-wrap: wrap; margin: 16px 0 10px; }
+.local-font-actions button { padding: 11px 15px; border: 1px solid #91a875; background: #344127; color: #fff; font-size: 11px; cursor: pointer; }
+.local-font-actions button:hover:not(:disabled) { background: #435333; }
+.local-font-actions button:disabled { opacity: .55; cursor: wait; }
+.local-font-actions .secondary-action { background: transparent; border-color: #59604f; color: #e1e5d8; }
+.local-font-notice { padding: 10px 12px; border: 1px solid #697d50; background: #293321; color: #efffd4; font-size: 11px; line-height: 1.6; }
+.local-font-empty { padding: 18px 0; color: #c0c5b6; font-size: 11px; line-height: 1.7; }
+.local-font-toolbar { display: flex; align-items: center; gap: 12px; margin: 14px 0; }
+.local-font-toolbar .search { flex: 1; min-width: 0; }
+.local-font-toolbar > span { color: #c0c5b6; font: 9px var(--mono); white-space: nowrap; }
+.local-font-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; max-height: 440px; overflow: auto; padding: 2px; }
+.local-font-card { display: flex; flex-direction: column; align-items: stretch; gap: 11px; min-width: 0; padding: 13px; border: 1px solid #505748; background: #141610; color: #f5f6f0; text-align: left; cursor: pointer; }
+.local-font-card:hover,.local-font-card.active { border-color: #d7f29a; background: #293321; }
+.local-font-card-meta { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.local-font-card-meta b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
+.local-font-card-meta small,.local-font-full { color: #c0c5b6; font-size: 9px; }
+.local-font-sample { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #f5f6f0; font-size: 25px; line-height: 1.3; }
+.local-font-full { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.local-font-footnote { color: #aeb5a3; font-size: 10px; line-height: 1.6; margin-top: 12px; }
+@media(max-width:850px) { .local-font-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:560px) { .local-font-grid { grid-template-columns: 1fr; max-height: 380px; } .local-font-toolbar { align-items: stretch; flex-direction: column; } }

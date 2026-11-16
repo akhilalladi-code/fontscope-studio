@@ -4,12 +4,14 @@ import "./style.css";
 type Axis = { min: number; default: number; max: number; name?: string };
 type Face = { id:string; fileId:string; fileName:string; fileSize:number; family:string; subfamily:string; fullName:string; postscriptName:string; version:string; weight:number; glyphCount:number; unitsPerEm:number|null; characterSet:number[]; issues:{severity:string;title:string;detail:string}[]; previewFamily:string; sha256:string; axes:Record<string,Axis>; isVariable:boolean; isCollection:boolean };
 type Stored = { file:File; buffer:ArrayBuffer; sha256:string };
+type LocalFont = { family:string; fullName:string; postscriptName:string; style:string };
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const worker = new Worker(new URL("./worker.ts", import.meta.url), { type:"module" });
 const stored = new Map<string,Stored>();
 let faces:Face[] = [], selected = "", compare = "", sample = "The quick brown fox jumps over the lazy dog. 0123456789";
 let custom = "", search = "", size = 42, lineHeight = 1.35, letterSpacing = 0, textColor = "#e8e8df", bgColor = "#11120f";
 let notice = "", pending = 0, axesValues:Record<string,number> = {}, activeTab = "overview";
+let localFonts:LocalFont[] = [], localFontsLoaded = false, localFontsBusy = false, localFontsNotice = "", localFontSearch = "", selectedLocalFont = "";
 const presets:Record<string,string> = { latin:"The quick brown fox jumps over the lazy dog. 0123456789", telugu:"తెలుగు భాష మన సంస్కృతి. అ ఆ ఇ ఈ ఉ ఊ ఋ ఎ ఏ ఐ ఒ ఓ ఔ", devanagari:"देवनागरी लिपि परीक्षण। अ आ इ ई उ ऊ ऋ ए ऐ ओ औ", tamil:"தமிழ் மொழி அழகானது. அ ஆ இ ஈ உ ஊ எ ஏ ஐ ஒ ஓ", kannada:"ಕನ್ನಡ ಭಾಷೆ ನಮ್ಮ ಹೆಮ್ಮೆ. ಅ ಆ ಇ ಈ ಉ ಊ ಋ ಎ ಏ", malayalam:"മലയാളം ഭാഷാ പരിശോധന. അ ആ ഇ ഈ ഉ ഊ എ ഏ ഐ" };
 const current = () => faces.find((f) => f.id === selected) || faces[0];
 const esc = escapeHtml;
@@ -45,6 +47,51 @@ function zipStore(entries:{name:string;data:Uint8Array}[]) {
   put32(ev,0,0x06054b50);put16(ev,4,0);put16(ev,6,0);put16(ev,8,entries.length);put16(ev,10,entries.length);put32(ev,12,centralSize);put32(ev,16,offset);put16(ev,20,0);
   return new Blob([...local,...central,end],{type:"application/zip"});
 }
+
+function localFontResultsMarkup() {
+  if (!localFontsLoaded) return '<p class="local-font-empty">Your installed fonts stay on this device. Select Scan to ask your browser for permission.</p>';
+  const filtered = localFonts.filter((font) => (font.family+" "+font.fullName+" "+font.style+" "+font.postscriptName).toLowerCase().includes(localFontSearch.toLowerCase()));
+  const shown = filtered.slice(0, 250);
+  return '<div class="local-font-toolbar"><input class="search" id="local-font-search" aria-label="Search installed fonts" placeholder="Search installed fonts…" value="'+esc(localFontSearch)+'"><span>'+filtered.length+' MATCHING</span></div>'+
+    (shown.length ? '<div class="local-font-grid">'+shown.map((font) => {
+      const index=localFonts.indexOf(font);
+      return '<button class="local-font-card '+(selectedLocalFont===font.postscriptName?"active":"")+'" data-local-font="'+index+'"><span class="local-font-card-meta"><b>'+esc(font.family)+'</b><small>'+esc(font.style||"Style not reported")+'</small></span><span class="local-font-sample" data-local-font-preview="'+index+'">Aa Bb Gg 0123</span><small class="local-font-full">'+esc(font.fullName||font.postscriptName||"")+'</small></button>';
+    }).join("")+'</div>' : '<p class="local-font-empty">No installed fonts match that search.</p>')+
+    (filtered.length>250?'<p class="local-font-footnote">Showing the first 250 matches. Refine your search to find more.</p>':"");
+}
+function bindLocalFontPreviews() {
+  document.querySelectorAll<HTMLElement>("[data-local-font-preview]").forEach((el) => {
+    const font=localFonts[Number(el.dataset.localFont)];
+    if(font) el.style.fontFamily=JSON.stringify(font.family)+", sans-serif";
+  });
+}
+async function scanLocalFonts() {
+  const api=window as Window & { queryLocalFonts?: () => Promise<LocalFont[]> };
+  if(!api.queryLocalFonts) {
+    localFontsNotice="Local font access is not available in this browser. Try the latest Chrome or Edge on desktop, or import font files below.";
+    render();
+    return;
+  }
+  let request:Promise<LocalFont[]>;
+  try { request=api.queryLocalFonts(); }
+  catch { localFontsNotice="Your browser could not start local font access. Check browser support and site permissions."; render(); return; }
+  localFontsBusy=true; localFontsNotice="Waiting for browser permission…"; render();
+  try {
+    const result=await request;
+    const unique=new Map<string,LocalFont>();
+    for(const font of result) {
+      const key=font.postscriptName||[font.family,font.style].join("|");
+      if(!unique.has(key)) unique.set(key,{family:font.family,fullName:font.fullName,postscriptName:font.postscriptName,style:font.style});
+    }
+    localFonts=[...unique.values()].sort((a,b)=>a.family.localeCompare(b.family)||a.style.localeCompare(b.style));
+    localFontsLoaded=true; localFontSearch=""; selectedLocalFont="";
+    localFontsNotice="Found "+localFonts.length+" installed font faces. Font information stays in this browser session.";
+  } catch(error) {
+    const name=error instanceof DOMException?error.name:"";
+    localFontsNotice=name==="NotAllowedError"?"Permission was not granted. Allow local font access in your browser's site permissions and try again.":"Could not read installed fonts. Check browser support and site permissions, then try again.";
+  } finally { localFontsBusy=false; render(); }
+}
+
 function render() {
   const face=current(), findings=auditFaces(faces), cov=face?coverage(face.characterSet,custom||sample):null;
   const duplicateCount=findings.filter((f)=>f.title==="Repeated PostScript name"||f.title==="Identical font file content").length;
@@ -57,6 +104,7 @@ function render() {
   '<section class="hero"><div class="eyebrow">TYPE ENGINEERING / STUDIO</div><div class="hero-grid"><div><h1>Know your<br><i>type.</i></h1><p>Inspect, compare and prepare font packages with a more reliable engineering workflow. Your font files stay in this browser session.</p></div><aside><small>THE WORKFLOW</small><p>Inspect every face.<br>Test real text.<br>Ship with confidence.</p><small class="local">● NO FONT UPLOADS · NO ACCOUNT</small></aside></div></section>'+
   '<section class="workspace"><div class="section-title"><div><small>WORKSPACE / 01</small><h2>Package overview</h2></div><small>'+stored.size+' FILES · '+faces.length+' FACES</small></div>'+
   '<div class="stats"><article><small>FONT FILES</small><strong>'+String(stored.size).padStart(2,"0")+'</strong><label>Imported this session</label></article><article><small>FONT FACES</small><strong>'+String(faces.length).padStart(2,"0")+'</strong><label>Including collection faces</label></article><article><small>FINDINGS</small><strong class="'+(findings.length?"warn":"")+'">'+String(findings.length).padStart(2,"0")+'</strong><label>Advisory audit results</label></article><article><small>DUPLICATES</small><strong>'+String(duplicateCount).padStart(2,"0")+'</strong><label>Names or identical content</label></article></div>'+
+  '<section class="panel local-font-library"><div class="panel-title"><div><small>LOCAL DEVICE / PERMISSION-BASED ACCESS</small><h3>Local Font Library</h3></div><span class="local-font-count">'+(localFontsLoaded?localFonts.length+" FACES":"NOT SCANNED")+'</span></div><p class="local-font-description">Discover font families already installed on this computer and preview them instantly. Font files are not uploaded or copied. Your browser will ask for permission before sharing font metadata with this page.</p><div class="local-font-actions"><button id="scan-local-fonts" '+(localFontsBusy?"disabled":"")+'>'+(localFontsBusy?"Scanning…":localFontsLoaded?"↻ Scan again":"⌕ Scan my installed fonts")+'</button>'+(localFontsLoaded?'<button id="clear-local-fonts" class="secondary-action">Clear results</button>':"")+'</div>'+(localFontsNotice?'<p class="local-font-notice" role="status">'+esc(localFontsNotice)+'</p>':"")+'<div id="local-font-results">'+localFontResultsMarkup()+'</div><p class="local-font-footnote">Requires a supported desktop browser and your approval. FontScope receives font metadata for previews; it does not upload local font files. If unavailable, use the font-file importer below.</p></section>'+
   '<label class="drop" id="drop"><b>↑</b><span><strong>Drop font files here</strong><small>or <u>browse your device</u><br><em>TTF · OTF · WOFF · WOFF2 · TTC / 50 MB EACH · 200 MB TOTAL · 100 FILES</em></small></span><input id="files" type="file" multiple accept=".ttf,.otf,.woff,.woff2,.ttc" hidden></label>'+
   (notice?'<div class="notice" role="status">'+esc(notice)+'<button id="dismiss" aria-label="Dismiss">×</button></div>':"")+(pending?'<p class="processing" role="status">◌ Parsing font files locally… '+pending+' pending</p>':"")+
   '<nav class="tabs" aria-label="Workspace sections">'+[["overview","Inventory"],["specimen","Specimen"],["coverage","Glyph QA"],["audit","Audit"],["handoff","Handoff"]].map(([id,label])=>'<button data-tab="'+id+'" class="'+(activeTab===id?"selected":"")+'">'+label+'</button>').join("")+'</nav>'+
@@ -71,6 +119,11 @@ function render() {
   bind();
 }
 function bind() {
+  document.querySelector<HTMLButtonElement>("#scan-local-fonts")?.addEventListener("click",()=>void scanLocalFonts());
+  document.querySelector<HTMLButtonElement>("#clear-local-fonts")?.addEventListener("click",()=>{localFonts=[];localFontsLoaded=false;localFontsNotice="";localFontSearch="";selectedLocalFont="";render();});
+  const localSearch=document.querySelector<HTMLInputElement>("#local-font-search");
+  if(localSearch) localSearch.oninput=()=>{localFontSearch=localSearch.value;const results=document.querySelector<HTMLElement>("#local-font-results");if(results){results.innerHTML=localFontResultsMarkup();bindLocalFontResults();}};
+  bindLocalFontResults();
   const input=document.querySelector<HTMLInputElement>("#files");
   if(input) input.onchange=()=>{if(input.files)void addFiles([...input.files]);input.value="";};
   const drop=document.querySelector<HTMLElement>("#drop");
@@ -95,6 +148,10 @@ function bind() {
   document.querySelectorAll<HTMLButtonElement>("[data-export]").forEach((el)=>el.onclick=()=>void exportFile(el.dataset.export!));
   document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((el)=>el.onclick=()=>{activeTab=el.dataset.tab||"overview";const target=activeTab==="overview"?"drop":activeTab==="specimen"?"specimen":activeTab==="coverage"?"coverage-text":activeTab==="audit"?"":"exports";document.querySelector(target?"#"+target:".findings")?.scrollIntoView({behavior:"smooth",block:"center"});document.querySelectorAll("[data-tab]").forEach((b)=>b.classList.toggle("selected",b===el));});
   document.querySelector("#dismiss")?.addEventListener("click",()=>{notice="";render();});
+}
+function bindLocalFontResults() {
+  bindLocalFontPreviews();
+  document.querySelectorAll<HTMLButtonElement>("[data-local-font]").forEach((el)=>el.onclick=()=>{const font=localFonts[Number(el.dataset.localFont)];if(!font)return;selectedLocalFont=font.postscriptName;document.querySelectorAll("[data-local-font]").forEach((item)=>item.classList.toggle("active",item===el));});
 }
 async function addFiles(list:File[]) {
   const valid=list.filter((f)=>extensions.includes(f.name.split(".").pop()?.toLowerCase()||""));
