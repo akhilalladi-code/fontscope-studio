@@ -1,6 +1,6 @@
 export const MAX_BYTES=50*1024*1024;
 export const extensions=["ttf","otf","woff","woff2","ttc"];
-export const formatBytes=(n:number)=>!Number.isFinite(n)||n<0?"—":n<1024?n+" B":(n/1024/1024).toFixed(2)+" MB";
+export const formatBytes=(n:number)=>!Number.isFinite(n)||n<0?"—":n<1024?n+" B":(n<1024*1024?(n/1024).toFixed(2)+" KB":(n/1024/1024).toFixed(2)+" MB");
 export function coverage(chars:number[],text:string){const set=new Set(chars);const cps=[...new Set(Array.from(text).map(c=>c.codePointAt(0)!).filter(c=>![9,10,13,32].includes(c)))];const missing=cps.filter(c=>!set.has(c));return{total:cps.length,present:cps.length-missing.length,missing,percent:cps.length?Math.round((cps.length-missing.length)/cps.length*100):100};}
 export function csv(rows:any[]){const q=(v:any)=>String(v??"").replace(/"/g,'""');return["file,family,style,postscript,version,weight,glyphs,bytes,issues",...rows.map(r=>[r.fileName,r.family,r.subfamily,r.postscriptName,r.version,r.weight,r.glyphCount,r.fileSize,r.issues.join("; ")].map(v=>'"'+q(v)+'"').join(","))].join("\r\n");}
 export function css(rows:any[]){return rows.map(r=>{const ext=r.fileName.split(".").pop()?.toLowerCase()||"woff2";const format=ext==="ttf"?"truetype":ext==="otf"?"opentype":ext;return '@font-face {\n  font-family: "'+String(r.family).replace(/["\\]/g,"")+'";\n  src: url("./'+r.fileName.replace(/["\\]/g,"")+'") format("'+format+'");\n  font-style: '+(/italic|oblique/i.test(r.subfamily)?"italic":"normal")+ ";\n  font-weight: "+(r.weight||400)+";\n  font-display: swap;\n}";}).join("\n\n");}
