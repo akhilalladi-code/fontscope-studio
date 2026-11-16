@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#10110e">
+  <meta name="description" content="FontScope privacy notice: how font files and installed-font metadata are processed locally in your browser.">
+  <meta name="robots" content="index,follow">
+  <link rel="icon" type="image/svg+xml" href="/fontscope-studio/favicon.svg">
+  <link rel="canonical" href="https://akhilalladi-code.github.io/fontscope-studio/privacy.html">
+  <title>Privacy Notice — FontScope</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#10110e;color:#f5f6f0}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#303a25,transparent 48%),#10110e}
+    main{max-width:850px;margin:0 auto;padding:64px 24px 90px}a{color:#d7f29a}
+    a:focus-visible{outline:2px solid #d7f29a;outline-offset:4px}.brand{font-weight:700;text-decoration:none}
+    h1{font-size:clamp(42px,8vw,68px);letter-spacing:-.05em;margin:64px 0 12px}
+    .lead{font-size:18px;line-height:1.7;color:#c0c5b6}article{border-top:1px solid #505748;padding:24px 0}
+    h2{font-size:19px;margin:0 0 10px}p,li{color:#c0c5b6;line-height:1.8;font-size:15px}
+    footer{border-top:1px solid #505748;padding-top:22px;color:#aeb5a3;font-size:12px}
+  </style>
+</head>
+<body><main>
+  <a class="brand" href="/fontscope-studio/">ƒ fontscope.</a>
+  <h1>Privacy notice</h1>
+  <p class="lead">FontScope is designed to inspect fonts locally. This notice explains what happens when you use the browser application.</p>
+  <p><small>Effective date: 16 November 2026</small></p>
+  <article><h2>Font files and processing</h2>
+    <p>Font files you select are read by your browser and parsed locally using a Web Worker. Font bytes are held in browser memory for the active page session. FontScope does not provide a font-upload endpoint or send imported font files to an application server.</p>
+    <p>Refreshing or closing the page clears the application's in-memory font data. Files you explicitly download or save remain under your control.</p>
+  </article>
+  <article><h2>Installed-font permission</h2>
+    <p>If you choose “Scan my installed fonts” in a supported browser, the browser may ask you to grant Local Font Access permission. If granted, FontScope receives font metadata such as family, full name, PostScript name and style so it can display and filter the results. FontScope does not read or upload the installed font file contents through this feature.</p>
+    <p>You can clear the displayed results in the application or revoke the permission using your browser's site settings.</p>
+  </article>
+  <article><h2>Analytics, accounts and cookies</h2>
+    <p>The current application does not require an account, does not use an application database, and does not include an analytics or advertising integration. FontScope does not intentionally set application cookies.</p>
+    <p>GitHub Pages hosts the static website. GitHub may process technical request information under its own policies and infrastructure practices.</p>
+  </article>
+  <article><h2>Third-party links</h2>
+    <p>The application may link to GitHub for source code, issues and project information. When you follow an external link, that provider's privacy practices apply.</p>
+  </article>
+  <article><h2>Security and limitations</h2>
+    <p>Local processing reduces the need to transmit font files, but it does not remove risks from a compromised device, browser, browser extension or downloaded file. Keep your browser updated and only open font files from sources you trust.</p>
+    <p>FontScope's Unicode coverage and metadata checks are advisory. They are not legal, licensing or complete typographic validation services.</p>
+  </article>
+  <article><h2>Contact</h2>
+    <p>For questions or privacy-related requests, use the <a href="https://github.com/akhilalladi-code/fontscope-studio/issues">FontScope GitHub issue tracker</a>. Do not include font files or private information in a public issue.</p>
+  </article>
+  <footer><a href="/fontscope-studio/">Return to FontScope</a> · Local-first font engineering studio.</footer>
+</main></body></html>

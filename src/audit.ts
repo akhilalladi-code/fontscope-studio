@@ -3,6 +3,19 @@ export const MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 export const MAX_FILES = 100;
 export const extensions = ["ttf", "otf", "woff", "woff2", "ttc"];
 
+export function hasValidFontSignature(buffer: ArrayBuffer, extension: string): boolean {
+  const bytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 4));
+  const ascii = String.fromCharCode(...bytes);
+  const signatures: Record<string, string[]> = {
+    ttf: ["\u0000\u0001\u0000\u0000", "true"],
+    otf: ["OTTO"],
+    woff: ["wOFF"],
+    woff2: ["wOF2"],
+    ttc: ["ttcf"],
+  };
+  return (signatures[extension.toLowerCase()] || []).some((signature) => ascii === signature);
+}
+
 export const formatBytes = (n: number): string => {
   if (!Number.isFinite(n) || n < 0) return "—";
   if (n < 1024) return n + " B";
