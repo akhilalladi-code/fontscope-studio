@@ -6,7 +6,7 @@ Inspect font packages, compare families, test character coverage, explore variab
 
 ## Features
 
-- Batch inspect TTF, OTF, WOFF, WOFF2 and TTC files (50 MB per file; 200 MB total; 100 files per session).
+- Scan installed desktop fonts through the browser Local Font Access API after explicit user permission; search and preview returned font faces without uploading font files.\n- Batch inspect TTF, OTF, WOFF, WOFF2 and TTC files (50 MB per file; 200 MB total; 100 files per session).
 - Parse metadata in a Web Worker and calculate SHA-256 file fingerprints locally.
 - Detect missing metadata, suspicious filename/family differences, repeated PostScript names and byte-identical files.
 - Inspect Unicode character presence and group missing characters by Unicode block, including Telugu and Devanagari.
@@ -36,7 +36,7 @@ npm run build
 
 ## Privacy and limits
 
-Font files are read and processed in your browser. FontScope does not upload, persist, convert, subset or redistribute font files. Clearing or refreshing the page clears the session. The app shell currently uses system fonts; it does not need a remote font service.
+Font files are read and processed in your browser. The optional Local Font Library requests explicit browser permission to read installed-font metadata; it does not upload or copy local font files. FontScope does not upload, persist, convert, subset or redistribute imported font files. Clearing or refreshing the page clears the session. Local Font Access is currently available in supported Chromium-based desktop browsers (such as Chrome and Edge); Firefox, Safari and many mobile browsers do not expose this API. Use the file importer as a fallback. The app shell currently uses system fonts; it does not need a remote font service.
 
 Glyph coverage measures Unicode character presence only. It does not validate OpenType shaping, ligatures, kerning, mark positioning, script layout, fallback behavior or visual correctness. Use a shaping-aware renderer and native applications for final multilingual QA.
 
