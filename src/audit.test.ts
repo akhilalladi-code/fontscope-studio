@@ -1,1 +1,33 @@
-import {describe,it,expect} from "vitest";import{coverage,formatBytes,extensions}from"./audit";describe("FontScope helpers",()=>{it("formats sizes",()=>expect(formatBytes(2048)).toBe("2.00 KB"));it("checks unique Unicode coverage",()=>expect(coverage([65,66],"AAB D")).toMatchObject({total:3,present:2,missing:[68],percent:67}));it("lists accepted formats",()=>expect(extensions).toContain("woff2"));});
+import { describe, it, expect } from "vitest";
+import { auditFaces, coverage, css, csv, escapeHtml, extensions, formatBytes, unicodeBlock } from "./audit";
+
+describe("FontScope audit helpers", () => {
+  it("formats file sizes and rejects invalid values", () => {
+    expect(formatBytes(2048)).toBe("2.00 KB");
+    expect(formatBytes(-1)).toBe("—");
+    expect(formatBytes(Number.NaN)).toBe("—");
+  });
+  it("checks unique Unicode code points rather than UTF-16 units", () => {
+    expect(coverage([65, 66], "AAB D")).toMatchObject({ total: 3, present: 2, missing: [68], percent: 67 });
+    expect(coverage([0x1f600], "😀").percent).toBe(100);
+  });
+  it("identifies Indic Unicode blocks", () => {
+    expect(unicodeBlock(0x0c05)).toBe("Telugu");
+    expect(unicodeBlock(0x0915)).toBe("Devanagari");
+  });
+  it("escapes HTML content", () => expect(escapeHtml("<script>")).toBe("&lt;script&gt;"));
+  it("quotes CSV values safely", () => expect(csv([{ fileName: 'a".woff2', family: "A,B", issues: [] }])).toContain('"a"".woff2"'));
+  it("omits TTC from webfont CSS", () => {
+    expect(css([{ fileName: "family.ttc", family: "Family", subfamily: "Regular" }])).toContain("TTC collections are intentionally omitted");
+    expect(css([{ fileName: "family.woff2", family: "Family", subfamily: "Regular" }])).toContain('format("woff2")');
+  });
+  it("finds duplicate PostScript names and hashes", () => {
+    const findings = auditFaces([
+      { id: "1", fileName: "a.ttf", postscriptName: "Family-Regular", sha256: "same", issues: [] },
+      { id: "2", fileName: "b.ttf", postscriptName: "family-regular", sha256: "same", issues: [] },
+    ]);
+    expect(findings.some((f) => f.title === "Repeated PostScript name")).toBe(true);
+    expect(findings.some((f) => f.title === "Identical font file content")).toBe(true);
+  });
+  it("lists accepted formats", () => expect(extensions).toContain("woff2"));
+});
