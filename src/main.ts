@@ -1,4 +1,5 @@
-import { auditFaces, coverage, css, csv, escapeHtml, extensions, formatBytes, MAX_BYTES, MAX_FILES, MAX_TOTAL_BYTES, sha256, unicodeBlock } from "./audit";
+import { auditFaces, coverage, css, csv, escapeHtml, extensions, formatBytes, hasValidFontSignature, MAX_BYTES, MAX_FILES, MAX_TOTAL_BYTES, sha256, unicodeBlock } from "./audit";
+import { zipStore } from "./archive";
 import "./style.css";
 
 type Axis = { min: number; default: number; max: number; name?: string };
@@ -6,15 +7,50 @@ type Face = { id:string; fileId:string; fileName:string; fileSize:number; family
 type Stored = { file:File; buffer:ArrayBuffer; sha256:string };
 type LocalFont = { family:string; fullName:string; postscriptName:string; style:string };
 const app = document.querySelector<HTMLDivElement>("#app")!;
-const worker = new Worker(new URL("./worker.ts", import.meta.url), { type:"module" });
+let worker: Worker;
 const stored = new Map<string,Stored>();
 let faces:Face[] = [], selected = "", compare = "", sample = "The quick brown fox jumps over the lazy dog. 0123456789";
 let custom = "", search = "", size = 42, lineHeight = 1.35, letterSpacing = 0, textColor = "#e8e8df", bgColor = "#11120f";
 let notice = "", pending = 0, axesValues:Record<string,number> = {}, activeTab = "overview";
+const pendingIds = new Set<string>();
 let localFonts:LocalFont[] = [], localFontsLoaded = false, localFontsBusy = false, localFontsNotice = "", localFontSearch = "", selectedLocalFont = "";
 const presets:Record<string,string> = { latin:"The quick brown fox jumps over the lazy dog. 0123456789", telugu:"తెలుగు భాష మన సంస్కృతి. అ ఆ ఇ ఈ ఉ ఊ ఋ ఎ ఏ ఐ ఒ ఓ ఔ", devanagari:"देवनागरी लिपि परीक्षण। अ आ इ ई उ ऊ ऋ ए ऐ ओ औ", tamil:"தமிழ் மொழி அழகானது. அ ஆ இ ஈ உ ஊ எ ஏ ஐ ஒ ஓ", kannada:"ಕನ್ನಡ ಭಾಷೆ ನಮ್ಮ ಹೆಮ್ಮೆ. ಅ ಆ ಇ ಈ ಉ ಊ ಋ ಎ ಏ", malayalam:"മലയാളം ഭാഷാ പരിശോധന. അ ആ ഇ ഈ ഉ ഊ എ ഏ ഐ" };
 const current = () => faces.find((f) => f.id === selected) || faces[0];
 const esc = escapeHtml;
+
+function createWorker(): Worker {
+  const instance = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+  instance.onmessage = (event: MessageEvent<{ id: string; faces?: Face[]; error?: string }>) => {
+    pendingIds.delete(event.data.id);
+    pending = Math.max(0, pending - 1);
+    if (event.data.faces) {
+      faces.push(...event.data.faces);
+      if (!selected) selected = event.data.faces[0]?.id || "";
+      notice = "Font metadata and file fingerprint processed locally.";
+    } else {
+      stored.delete(event.data.id);
+      notice = "Could not parse font: " + (event.data.error || "Unsupported or damaged file.");
+    }
+    render();
+    if (event.data.faces) void preview();
+  };
+  const recover = (message: string) => {
+    instance.terminate();
+    for (const id of pendingIds) stored.delete(id);
+    pendingIds.clear();
+    pending = 0;
+    notice = message;
+    worker = createWorker();
+    render();
+  };
+  instance.onerror = (event) => {
+    event.preventDefault();
+    recover("The font parser stopped unexpectedly. Pending files were discarded safely; you can retry the import.");
+  };
+  instance.onmessageerror = () => recover("The font parser returned an unreadable response. Pending files were discarded safely; you can retry the import.");
+  return instance;
+}
+worker = createWorker();
 function save(name:string, data:BlobPart|Blob, type="text/plain") {
   const blob = data instanceof Blob ? data : new Blob([data], {type});
   const url = URL.createObjectURL(blob), a = document.createElement("a");
@@ -27,27 +63,6 @@ function htmlReport() {
   const rows = faces.map((f) => "<tr><td>"+esc(f.family)+"</td><td>"+esc(f.subfamily)+"</td><td>"+esc(f.fileName)+"</td><td>"+f.weight+"</td><td>"+f.glyphCount+"</td><td>"+f.issues.length+"</td></tr>").join("");
   return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>FontScope audit</title><style>body{font:15px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#20231d}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px;border-bottom:1px solid #ddd}th{background:#f2f4ed}</style><h1>FontScope audit report</h1><p>'+new Date().toLocaleString()+" · "+faces.length+' faces</p><table><thead><tr><th>Family</th><th>Style</th><th>File</th><th>Weight</th><th>Glyphs</th><th>Findings</th></tr></thead><tbody>'+rows+"</tbody></table></html>";
 }
-function crc32(data:Uint8Array) {
-  let crc = -1;
-  for (const byte of data) { crc ^= byte; for (let j=0;j<8;j++) crc = (crc >>> 1) ^ (-(crc & 1) & 0xedb88320); }
-  return (crc ^ -1) >>> 0;
-}
-function zipStore(entries:{name:string;data:Uint8Array}[]) {
-  const enc = new TextEncoder(), local:Uint8Array[] = [], central:Uint8Array[] = []; let offset = 0;
-  const put16=(v:DataView,p:number,n:number)=>v.setUint16(p,n,true), put32=(v:DataView,p:number,n:number)=>v.setUint32(p,n,true);
-  for (const entry of entries) {
-    const name=enc.encode(entry.name), data=entry.data, crc=crc32(data), head=new Uint8Array(30+name.length), hv=new DataView(head.buffer);
-    put32(hv,0,0x04034b50);put16(hv,4,20);put16(hv,6,0x800);put16(hv,8,0);put16(hv,10,0);put16(hv,12,0);put32(hv,14,crc);put32(hv,18,data.length);put32(hv,22,data.length);put16(hv,26,name.length);put16(hv,28,0);head.set(name,30);
-    local.push(head,data);
-    const ch=new Uint8Array(46+name.length),cv=new DataView(ch.buffer);
-    put32(cv,0,0x02014b50);put16(cv,4,20);put16(cv,6,20);put16(cv,8,0x800);put16(cv,10,0);put16(cv,12,0);put16(cv,14,0);put32(cv,16,crc);put32(cv,20,data.length);put32(cv,24,data.length);put16(cv,28,name.length);put16(cv,30,0);put16(cv,32,0);put16(cv,34,0);put16(cv,36,0);put32(cv,38,0);put32(cv,42,offset);ch.set(name,46);central.push(ch);
-    offset += head.length + data.length;
-  }
-  const centralSize=central.reduce((n,a)=>n+a.length,0), end=new Uint8Array(22), ev=new DataView(end.buffer);
-  put32(ev,0,0x06054b50);put16(ev,4,0);put16(ev,6,0);put16(ev,8,entries.length);put16(ev,10,entries.length);put32(ev,12,centralSize);put32(ev,16,offset);put16(ev,20,0);
-  return new Blob([...local,...central,end],{type:"application/zip"});
-}
-
 function localFontResultsMarkup() {
   if (!localFontsLoaded) return '<p class="local-font-empty">Your installed fonts stay on this device. Select Scan to ask your browser for permission.</p>';
   const filtered = localFonts.filter((font) => (font.family+" "+font.fullName+" "+font.style+" "+font.postscriptName).toLowerCase().includes(localFontSearch.toLowerCase()));
@@ -114,8 +129,8 @@ function render() {
   '<section class="panel"><div class="panel-title"><div><small>04 / SIDE-BY-SIDE</small><h3>Font comparison</h3></div></div>'+(face?'<label class="compare-select">COMPARE WITH <select id="compare"><option value="">Choose another face</option>'+faces.filter((f)=>f.id!==face.id).map((f)=>'<option value="'+esc(f.id)+'" '+(compare===f.id?"selected":"")+'>'+esc(f.family+" · "+f.subfamily)+'</option>').join("")+'</select></label><div class="compare-grid"><div><small>'+esc(face.family)+'</small><p style="font-family:\''+esc(face.previewFamily)+'\';font-size:30px">Aa Bb Gg 123</p><span>'+esc(face.subfamily)+'</span></div><div><small>'+(compareFace?esc(compareFace.family):"SECOND FONT")+'</small><p style="font-family:\''+esc(compareFace?.previewFamily||"sans-serif")+'\';font-size:30px">'+(compareFace?"Aa Bb Gg 123":"Choose a second face")+'</p><span>'+(compareFace?esc(compareFace.subfamily):"Comparison preview")+'</span></div></div>':'<p class="empty">Import at least one face to compare type.</p>')+'</section></div>'+
   '<div class="columns"><section class="panel"><div class="panel-title"><div><small>05 / MULTILINGUAL QA</small><h3>Unicode coverage</h3></div></div>'+(face&&cov?'<textarea id="coverage-text" aria-label="Text to check for glyph coverage" placeholder="Enter the exact text to test…">'+esc(custom||sample)+'</textarea><div class="score"><b>'+cov.percent+'%</b><span>'+cov.present+' of '+cov.total+' unique non-space code points present</span></div><div class="progress"><i style="width:'+cov.percent+'%"></i></div><small class="sub">MISSING CHARACTERS · '+cov.missing.length+'</small><div class="missing">'+(cov.missing.length?cov.missing.slice(0,80).map((cp)=>'<span title="U+'+cp.toString(16).toUpperCase()+' · '+unicodeBlock(cp)+'">'+esc(String.fromCodePoint(cp))+'</span>').join(""):'<p class="ok">✓ All tested code points are present.</p>')+'</div><div class="block-list">'+[...blocks.entries()].map(([name,v])=>'<div><span>'+esc(name)+'</span><b>'+v.missing+' missing</b></div>').join("")+'</div><p class="disclaimer">Presence checks do not validate shaping, ligatures, mark positioning, kerning or visual correctness.</p>':'<p class="empty">Select a face to test character presence.</p>')+'</section>'+
   '<section class="panel"><div class="panel-title"><div><small>06 / PACKAGE HEALTH</small><h3>Audit findings</h3></div><b class="count">'+findings.length+'</b></div><div class="findings">'+(findings.length?findings.map((f)=>'<article class="finding '+f.severity+'"><b>'+esc(f.title)+'</b><p>'+esc(f.detail)+'</p></article>').join(""):'<p class="ok">'+(faces.length?"✓ No issues found by the current checks.":"Audit findings appear after importing fonts.")+'</p>')+'</div><p class="disclaimer">Automated checks are advisory. Verify licensing and final rendering independently.</p></section></div>'+
-  '<section class="panel exports"><div class="panel-title"><div><small>07 / HANDOFF</small><h3>Export your font package</h3></div><small>SESSION DATA</small></div><p>Generate an inventory, implementation snippet, review report or portable handoff archive.</p><div class="buttons"><button data-export="json" '+(!faces.length?"disabled":"")+'>JSON inventory ↓</button><button data-export="csv" '+(!faces.length?"disabled":"")+'>CSV inventory ↓</button><button data-export="css" '+(!faces.length?"disabled":"")+'>CSS @font-face ↓</button><button data-export="html" '+(!faces.length?"disabled":"")+'>HTML report ↓</button><button data-export="tokens" '+(!faces.length?"disabled":"")+'>Design tokens ↓</button><button data-export="tailwind" '+(!faces.length?"disabled":"")+'>Tailwind config ↓</button><button data-export="regression" '+(!faces.length||!compareFace?"disabled":"")+'>Compare report ↓</button><button data-export="zip" '+(!faces.length?"disabled":"")+'>Complete ZIP handoff ↓</button></div><p class="disclaimer">ZIP includes your original imported files plus generated reports. It does not convert or subset fonts. TTC files are included as originals but excluded from CSS output.</p></section>'+
-  '</section></main><footer><span>FONTSCOPE / TYPE ENGINEERING TOOLKIT</span><span>LOCAL-FIRST · SESSION ONLY</span><span>© 2026 AKHIL ALLADI</span></footer>';
+  '<section class="panel exports"><div class="panel-title"><div><small>07 / HANDOFF</small><h3>Export your font package</h3></div><small>SESSION DATA</small></div><p>Generate an inventory, implementation snippet, review report or portable handoff archive.</p><div class="buttons"><button data-export="json" '+(!faces.length?"disabled":"")+'>JSON inventory ↓</button><button data-export="csv" '+(!faces.length?"disabled":"")+'>CSV inventory ↓</button><button data-export="css" '+(!faces.length?"disabled":"")+'>CSS @font-face ↓</button><button data-export="html" '+(!faces.length?"disabled":"")+'>HTML report ↓</button><button data-export="tokens" '+(!faces.length?"disabled":"")+'>Design tokens ↓</button><button data-export="tailwind" '+(!faces.length?"disabled":"")+'>Tailwind config ↓</button><button data-export="regression" '+(!faces.length||!compareFace?"disabled":"")+'>Compare report ↓</button><button data-export="zip" '+(!faces.length?"disabled":"")+'>Complete ZIP handoff ↓</button></div><p class="disclaimer">ZIP includes original imported files and generated reports. It does not convert or subset fonts. TTC files are included as originals but excluded from CSS output. ZIP handoffs are limited to 80 MB to protect browser memory.</p></section>'+
+  '</section></main><footer><span>FONTSCOPE / TYPE ENGINEERING TOOLKIT</span><span>LOCAL-FIRST · SESSION ONLY</span><span><a href="/fontscope-studio/privacy.html">PRIVACY</a> · <a href="https://github.com/akhilalladi-code/fontscope-studio/issues" target="_blank" rel="noopener noreferrer">SUPPORT</a> · © 2026 AKHIL ALLADI</span></footer>';
   bind();
 }
 function bind() {
@@ -162,17 +177,32 @@ async function addFiles(list:File[]) {
     if(file.size>MAX_BYTES){notice=file.name+" exceeds the 50 MB per-file limit.";continue;}
     if(total+file.size>MAX_TOTAL_BYTES){notice="The 200 MB total session limit would be exceeded.";break;}
     const id=crypto.randomUUID();
-    try{const buffer=await file.arrayBuffer();const hash=await sha256(buffer);stored.set(id,{file,buffer,sha256:hash});total+=file.size;pending++;worker.postMessage({id,name:file.name,size:file.size,buffer:buffer.slice(0),sha256:hash});}
-    catch{notice="Could not read or fingerprint "+file.name+".";}
+    try {
+      const buffer = await file.arrayBuffer();
+      const extension = file.name.split(".").pop()?.toLowerCase() || "";
+      if (!hasValidFontSignature(buffer, extension)) {
+        notice = file.name + " does not contain a valid " + extension.toUpperCase() + " font signature.";
+        continue;
+      }
+      const hash = await sha256(buffer);
+      stored.set(id, { file, buffer, sha256: hash });
+      total += file.size;
+      pending++;
+      pendingIds.add(id);
+      try {
+        worker.postMessage({ id, name: file.name, size: file.size, buffer: buffer.slice(0), sha256: hash });
+      } catch {
+        pendingIds.delete(id);
+        pending = Math.max(0, pending - 1);
+        stored.delete(id);
+        notice = "Could not queue " + file.name + " for parsing. Try importing it again.";
+      }
+    } catch {
+      notice = "Could not read or fingerprint " + file.name + ".";
+    }
   }
   render();
 }
-worker.onmessage=(event:MessageEvent<{id:string;faces?:Face[];error?:string}>)=>{
-  pending=Math.max(0,pending-1);
-  if(event.data.faces){faces.push(...event.data.faces);if(!selected)selected=event.data.faces[0]?.id||"";notice="Font metadata and file fingerprint processed locally.";}
-  else{stored.delete(event.data.id);notice="Could not parse font: "+(event.data.error||"Unsupported or damaged file.");}
-  render();if(event.data.faces)void preview();
-};
 async function preview() {
   const face=current();if(!face)return;const item=stored.get(face.fileId);if(!item)return;
   try{const loaded=new FontFace(face.previewFamily,item.buffer.slice(0),{weight:String(face.weight||400),style:/italic|oblique/i.test(face.subfamily)?"italic":"normal"});await loaded.load();document.fonts.add(loaded);notice=face.fullName+" loaded for preview.";}
@@ -223,7 +253,13 @@ async function exportFile(kind:string) {
     entries.push({name:"reports/fontscope-font-face.css",data:encoder.encode(css(faces))});
     entries.push({name:"reports/fontscope-report.html",data:encoder.encode(htmlReport())});
     entries.push({name:"README-HANDOFF.txt",data:encoder.encode("FontScope local font handoff\nGenerated: "+new Date().toISOString()+"\nOriginal font files are in /fonts. Reports are in /reports.\nTTC collections are excluded from CSS output. Verify licensing and shaping independently.\n")});
-    save("fontscope-handoff.zip",zipStore(entries));
+    try {
+      const archive = zipStore(entries);
+      save("fontscope-handoff.zip", archive);
+    } catch (error) {
+      notice = error instanceof Error ? error.message : "Unable to create the ZIP handoff. Export the reports individually instead.";
+      render();
+    }
   }
 }
 render();
